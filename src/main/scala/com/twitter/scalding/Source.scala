@@ -98,6 +98,10 @@ abstract class Source extends java.io.Serializable {
     mode.getReadPipe(this, transformForRead(new Pipe(srcName)))
   }
 
+  def readRichPipe(implicit flowDef : FlowDef, mode : Mode) = {
+    RichPipe(read(flowDef, mode));
+  }
+
   /**
   * write the pipe and return the input so it can be chained into
   * the next operation
@@ -187,7 +191,7 @@ trait Mappable[T] extends Source {
   val converter : TupleConverter[T]
   def mapTo[U](out : Fields)(mf : (T) => U)
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).mapTo[T,U](sourceFields -> out)(mf)(converter, setter)
+    readRichPipe(flowDef, mode).mapTo[T,U](sourceFields -> out)(mf)(converter, setter)
   }
   /**
   * If you want to filter, you should use this and output a 0 or 1 length Iterable.
@@ -195,7 +199,7 @@ trait Mappable[T] extends Source {
   */
   def flatMapTo[U](out : Fields)(mf : (T) => Iterable[U])
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).flatMapTo[T,U](sourceFields -> out)(mf)(converter, setter)
+    readRichPipe(flowDef, mode).flatMapTo[T,U](sourceFields -> out)(mf)(converter, setter)
   }
 }
 

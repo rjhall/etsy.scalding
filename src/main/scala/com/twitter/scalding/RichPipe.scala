@@ -58,6 +58,7 @@ object RichPipe extends java.io.Serializable {
 }
 
 class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms {
+
   // We need this for the implicits
   import Dsl._
   import RichPipe.assignName
@@ -125,7 +126,12 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
    * them to a fields object
    */
   def project(fields : Fields) = {
-    new Each(pipe, fields, new Identity(fields))
+    if(SourceTracking.track_sources) {
+        val f = if(fields.contains(SourceTracking.sourceTrackingField)) fields else fields.append(SourceTracking.sourceTrackingField)
+        new Each(pipe, f, new Identity(f))
+    } else {
+        new Each(pipe, fields, new Identity(fields))
+    }
   }
 
   /**
@@ -152,7 +158,26 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
    * }}}
    */
   def groupBy(f : Fields)(builder : GroupBuilder => GroupBuilder) : Pipe = {
-    builder(new GroupBuilder(f)).schedule(pipe.getName, pipe)
+    mergeSources(builder(new GroupBuilder(f))).schedule(pipe.getName, pipe)
+  }
+
+  // Handle the merging of tracked source data during a grouping operation.
+  // Note that the reduce is effectively chained onto the users operation.
+  protected def mergeSources(g : GroupBuilder) : GroupBuilder = {
+    if(SourceTracking.track_sources) {
+      g.reduce[Map[String,List[Tuple]]](SourceTracking.sourceTrackingField -> SourceTracking.sourceTrackingField) {
+        (a : Map[String,List[Tuple]], b : Map[String,List[Tuple]]) =>
+        (for(m <- List(a, b); kv <- m) yield kv).foldLeft(Map[String,List[Tuple]]()){
+          (m : Map[String,List[Tuple]], v : (String,List[Tuple])) =>
+            if(m.contains(v._1))
+              m + (v._1 -> (v._2 ++ m(v._1)))
+            else
+              m + v
+        }
+      }
+    } else {
+      g
+    }
   }
 
   /**
@@ -197,9 +222,20 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   def groupRandomly(n : Int)(gs: GroupBuilder => GroupBuilder) : Pipe = {
     using(new Random with Stateful)
       .map(()->'__shard__) { (r:Random, _:Unit) => r.nextInt(n) }
-      .groupBy('__shard__) { gs(_).reducers(n) }
+      .groupBy('__shard__) { g : GroupBuilder => mergeSources(gs(g)).reducers(n) }
       .discard('__shard__)
   }
+
+  /**
+   * Adds a field with a constant value.
+   *
+   * == Usage ==
+   * {{{
+   * insert('a, 1)
+   * }}}
+   */
+  def insert[A](fs : Fields, value : A)(implicit conv : TupleSetter[A]) : Pipe =
+    map(() -> fs) { _:Unit => value }
 
   /**
    * Rename some set of N fields as another set of N fields
@@ -270,7 +306,10 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
                 (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
       conv.assertArityMatches(fs._1)
       setter.assertArityMatches(fs._2)
-      eachTo(fs)(new MapFunction[A,T](fn, _, conv, setter))
+      if(SourceTracking.track_sources)
+          each(fs)(new MapFunction[A,T](fn, _, conv, setter)).project(fs._2)
+      else
+          eachTo(fs)(new MapFunction[A,T](fn, _, conv, setter))
   }
   def flatMap[A,T](fs : (Fields,Fields))(fn : A => Iterable[T])
                 (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
@@ -282,7 +321,10 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
                 (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
       conv.assertArityMatches(fs._1)
       setter.assertArityMatches(fs._2)
-      eachTo(fs)(new FlatMapFunction[A,T](fn, _, conv, setter))
+      if(SourceTracking.track_sources)
+          each(fs)(new FlatMapFunction[A,T](fn, _, conv, setter)).project(fs._2)
+      else
+          eachTo(fs)(new FlatMapFunction[A,T](fn, _, conv, setter))
   }
 
   /**
@@ -360,10 +402,23 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   def debug = new Each(pipe, new Debug())
 
   def write(outsource : Source)(implicit flowDef : FlowDef, mode : Mode) = {
-    outsource.writeFrom(pipe)(flowDef, mode)
+    if(SourceTracking.track_sources) {
+      // Disable source tracking (so the flatMapTo removes __source_data).
+      SourceTracking.track_sources = false
+      outsource.writeFrom(discard(SourceTracking.sourceTrackingField))(flowDef, mode)
+      SourceTracking.sources.foreach{ fp_source : (String, Source) =>
+        val p = pipe
+          .project(SourceTracking.sourceTrackingField)
+          .flatMapTo(SourceTracking.sourceTrackingField -> SourceTracking.getFields(fp_source._1)){ x : Map[String, List[Tuple]] => x.getOrElse(fp_source._1, List[Tuple]()) }
+        SourceTracking.writePipe(fp_source._1, p)
+      }
+      // Re-enable source tracking.
+      SourceTracking.track_sources = true
+    } else {
+      outsource.writeFrom(pipe)(flowDef, mode)
+    }
     pipe
   }
-
   /**
    * Adds a trap to the current pipe,
    * which will capture all exceptions that occur in this pipe

@@ -50,7 +50,7 @@ trait JoinAlgorithms {
    *
    */
   def coGroupBy(f : Fields, j : JoinMode = InnerJoinMode)(builder : CoGroupBuilder => GroupBuilder) : Pipe = {
-    builder(new CoGroupBuilder(f, j)).schedule(pipe.getName, pipe)
+    finishJoin(builder(new CoGroupBuilder(f, j)).schedule(pipe.getName, prepareJoin(pipe)))
   }
 
   /*
@@ -114,6 +114,31 @@ trait JoinAlgorithms {
       case o : OuterJoin => (OuterJoinMode, OuterJoinMode)
       case _ => throw new InvalidJoinModeException("cannot convert joiner to joiner modes")
     }
+  }
+
+  val sourceTrackingJoinField : Fields = new Fields(SourceTracking.source_tracking_field_name + "_2")
+
+  def prepareJoin(p : Pipe) : Pipe = {
+    if(SourceTracking.track_sources)
+      p.rename(SourceTracking.sourceTrackingField, sourceTrackingJoinField)
+    else
+      p
+  }
+
+  def finishJoin(p : Pipe) : Pipe = {
+    if(SourceTracking.track_sources)
+      p.map((SourceTracking.sourceTrackingField, sourceTrackingJoinField) -> SourceTracking.sourceTrackingField) {
+        x : (Map[String,List[Tuple]], Map[String,List[Tuple]]) =>
+        (for(m <- List(x._1, x._2); kv <- m) yield kv).foldLeft(Map[String,List[Tuple]]()) {
+          (m : Map[String,List[Tuple]], v : (String,List[Tuple])) =>
+            if(m.contains(v._1))
+               m + (v._1 -> (v._2 ++ m(v._1)))
+            else
+               m + v
+        }
+      }
+    else
+      p
   }
 
   /**
@@ -186,19 +211,20 @@ trait JoinAlgorithms {
    */
   def joinWithTiny(fs :(Fields,Fields), that : Pipe) = {
     val intersection = asSet(fs._1).intersect(asSet(fs._2))
+    val pt = prepareJoin(that)
     if (intersection.size == 0) {
-      new HashJoin(assignName(pipe), fs._1, assignName(that), fs._2, new InnerJoin)
+      finishJoin(new HashJoin(assignName(pipe), fs._1, assignName(pt), fs._2, new InnerJoin))
     }
     else {
-      val (renamedThat, newJoinFields, temp) = renameCollidingFields(that, fs._2, intersection)
-      (new HashJoin(assignName(pipe), fs._1, assignName(renamedThat), newJoinFields, new InnerJoin))
-        .discard(temp)
+      val (renamedThat, newJoinFields, temp) = renameCollidingFields(pt, fs._2, intersection)
+      finishJoin((new HashJoin(assignName(pipe), fs._1, assignName(renamedThat), newJoinFields, new InnerJoin))
+        .discard(temp))
     }
   }
 
   def leftJoinWithTiny(fs :(Fields,Fields), that : Pipe) = {
     //Rename these pipes to avoid cascading name conflicts
-    new HashJoin(assignName(pipe), fs._1, assignName(that), fs._2, new LeftJoin)
+    finishJoin(new HashJoin(assignName(pipe), fs._1, assignName(prepareJoin(that)), fs._2, new LeftJoin))
   }
 
   /**
@@ -242,15 +268,15 @@ trait JoinAlgorithms {
 
     // Add the new dummy replication fields
     val newLeft = addReplicationFields(pipe, leftFields, leftReplication, rightReplication)
-    val newRight = addReplicationFields(otherPipe, rightFields, rightReplication, leftReplication, swap = true)
+    val newRight = addReplicationFields(prepareJoin(otherPipe), rightFields, rightReplication, leftReplication, swap = true)
 
     val leftJoinFields = Fields.join(fs._1, leftFields)
     val rightJoinFields = Fields.join(fs._2, rightFields)
 
-    newLeft
+    finishJoin(newLeft
       .joinWithSmaller((leftJoinFields, rightJoinFields), newRight, joiner, reducers)
       .discard(leftFields)
-      .discard(rightFields)
+      .discard(rightFields))
   }
 
   /**

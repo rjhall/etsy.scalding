@@ -90,6 +90,24 @@ abstract class FileSource extends Source {
     hdfsPaths.forall { pathIsGood(_, conf) }
   }
 
+  def getOutputForSourceDataTracking(fp : String) : Source = null
+
+  // To support subsampling operations.
+  // TODO: should make work for local mode.
+  override def readRichPipe(implicit flowDef: FlowDef, mode : Mode) = {
+    val p = super.readRichPipe(flowDef, mode)
+    if(SourceTracking.track_sources) {
+      import Dsl._
+      val fields = this.hdfsScheme.getSourceFields
+      val fp = (SourceTracking.source_output_prefix + "/" + hdfsPaths.head).replaceAll("//", "/")
+      val q = p.map(fields -> SourceTracking.sourceTrackingField){ te : TupleEntry => Map(fp -> List[Tuple](te.getTuple)) }
+      SourceTracking.openForWrite(fp, this, fields)
+      q
+    } else {
+      p
+    }
+  }
+
   /*
    * This throws InvalidSourceException if:
    * 1) we are in sourceStrictness mode and all sources are not present.
@@ -227,7 +245,12 @@ trait LocalTapSource extends FileSource {
 
 abstract class FixedPathSource(path : String*) extends FileSource {
   def localPath = { assert(path.size == 1); path(0) }
-  def hdfsPaths = path.toList
+  def hdfsPaths : List[String] = { // note, preserve covariant return that was happening before
+    if(SourceTracking.use_sources)
+      path.toList.map{ x : String => (SourceTracking.source_output_prefix + "/" + x).replaceAll("//", "/") }.toList
+    else
+      path.toList
+  }
 }
 
 /**
@@ -236,7 +259,9 @@ abstract class FixedPathSource(path : String*) extends FileSource {
 
 case class Tsv(p : String, override val fields : Fields = Fields.ALL,
   override val skipHeader : Boolean = false, override val writeHeader: Boolean = false) extends FixedPathSource(p)
-  with DelimitedScheme
+  with DelimitedScheme {
+  override def getOutputForSourceDataTracking(fp : String) = new Tsv(fp)
+}
 
 /**
 * Csv value source
@@ -247,7 +272,9 @@ case class Csv(p : String,
                 override val fields : Fields = Fields.ALL,
                 override val skipHeader : Boolean = false,
                 override val writeHeader : Boolean = false,
-                override val quote : String ="\"") extends FixedPathSource(p) with DelimitedScheme
+                override val quote : String ="\"") extends FixedPathSource(p) with DelimitedScheme {
+  override def getOutputForSourceDataTracking(fp : String) = new Csv(fp)
+}
 
 /** Allows you to set the types, prefer this:
  * If T is a subclass of Product, we assume it is a tuple. If it is not, wrap T in a Tuple1:
@@ -276,12 +303,12 @@ class TypedDelimited[T](p : Seq[String], override val fields : Fields,
   // For Mappable:
   override def mapTo[U](out : Fields)(fun : (T) => U)
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).mapTo[T,U](sourceFields -> out)(fun)(converter, setter)
+    readRichPipe(flowDef, mode).mapTo[T,U](sourceFields -> out)(fun)(converter, setter)
   }
   // For Mappable:
   override def flatMapTo[U](out : Fields)(fun : (T) => Iterable[U])
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).flatMapTo[T,U](sourceFields -> out)(fun)(converter, setter)
+    readRichPipe(flowDef, mode).flatMapTo[T,U](sourceFields -> out)(fun)(converter, setter)
   }
 
 
@@ -311,6 +338,7 @@ case class Osv(p : String, f : Fields = Fields.ALL) extends FixedPathSource(p)
   with DelimitedScheme {
     override val fields = f
     override val separator = "\1"
+    override def getOutputForSourceDataTracking(fp : String) = new Osv(fp)
 }
 
 object TimePathedSource {
@@ -398,10 +426,12 @@ abstract class MostRecentGoodSource(p : String, dr : DateRange, t : TimeZone)
     .exists{ _._2 }
 }
 
-case class TextLine(p : String) extends FixedPathSource(p) with TextLineScheme
-
+case class TextLine(p : String) extends FixedPathSource(p) with TextLineScheme {
+  override def getOutputForSourceDataTracking(fp : String) = new TextLine(fp)
+}
 case class SequenceFile(p : String, f : Fields = Fields.ALL) extends FixedPathSource(p) with SequenceFileScheme with LocalTapSource {
   override val fields = f
+  override def getOutputForSourceDataTracking(fp : String) = new SequenceFile(fp)
 }
 
 case class MultipleSequenceFiles(p : String*) extends FixedPathSource(p:_*) with SequenceFileScheme
@@ -422,6 +452,8 @@ case class WritableSequenceFile[K <: Writable : Manifest, V <: Writable : Manife
 */
 case class JsonLine(p : String) extends FixedPathSource(p) with TextLineScheme {
   import Dsl._
+
+  override def getOutputForSourceDataTracking(fp : String) = new JsonLine(fp)
 
   override def transformForWrite(pipe : Pipe) = pipe.mapTo(Fields.ALL -> 'json) {
     t : TupleEntry =>
