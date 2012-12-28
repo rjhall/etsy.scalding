@@ -31,11 +31,19 @@ object SourceTracking {
   var source_output_prefix : String = "sample"
   var source_tracking_field_name : String = "__souce_data__"
 
-  def init(args : Args) {
+  def init(args : Args) : Unit = {
     track_sources = args.boolean("write_sources")
     use_sources = args.boolean("use_sources")
     source_tracking_field_name = args.getOrElse("source_tracking_field_name", "__source_data__")
     source_output_prefix = args.getOrElse("source_output_prefix", "sample");
+  }
+
+  def reset : Unit = { 
+    track_sources = false;
+    use_sources = false;
+    sources = Map[String,Source]()
+    tail_pipes = Map[String,Pipe]()
+    fields = Map[String,Fields]()
   }
 
   def sourceTrackingField : Fields = new Fields(source_tracking_field_name)

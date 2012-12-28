@@ -89,7 +89,9 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
   }
 
   // This SITS is unfortunately needed to get around Specs
-  def finish : Unit = { () }
+  def finish : Unit = { 
+    SourceTracking.reset  
+  }
 
   // Registers test files, initializes the global mode, and creates a job.
   private def initJob(useHadoop : Boolean) : Job = {
