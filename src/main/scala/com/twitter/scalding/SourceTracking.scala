@@ -31,6 +31,13 @@ object SourceTracking {
   var source_output_prefix : String = "sample"
   var source_tracking_field_name : String = "__souce_data__"
 
+  def init(args : Args) {
+    track_sources = args.boolean("write_sources")
+    use_sources = args.boolean("use_sources")
+    source_tracking_field_name = args.getOrElse("source_tracking_field_name", "__source_data__")
+    source_output_prefix = args.getOrElse("source_output_prefix", "sample");
+  }
+
   def sourceTrackingField : Fields = new Fields(source_tracking_field_name)
 
   def getOpenSource(fp : String) : Source = {

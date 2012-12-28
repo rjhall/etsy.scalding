@@ -8,7 +8,7 @@ import org.specs._
 import java.lang.{Integer => JInt}
 
 class SourceTrackingMapJob(args : Args) extends Job(args) {
-  Tsv("input", ('x,'y)).read
+  Tsv("input", ('x,'y))
   .mapTo(('x, 'y) -> 'z){ x : (Int, Int) => x._1 + x._2 }
   .write(Tsv("output"))
 }
@@ -30,13 +30,13 @@ class SourceTrackingMapJobTest extends Specification with TupleConversions {
           unordered((4)) must be_==(true)
           unordered((11)) must be_==(true)
         }
-        .sink[(String)](Tsv("bar/input")) { outBuf => 
+        .sink[(Int,Int)](Tsv("bar/input")) { outBuf => 
           val unordered = outBuf.toSet
           println(outBuf.toString)
           unordered.size must be_==(3)
-          //unordered((0,1)) must be_==(true)
-          //unordered((1,3)) must be_==(true)
-          //unordered((2,9)) must be_==(true)
+          unordered((0,1)) must be_==(true)
+          unordered((1,3)) must be_==(true)
+          unordered((2,9)) must be_==(true)
         }
         .runHadoop
         .finish

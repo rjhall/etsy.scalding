@@ -107,7 +107,9 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
     Mode.mode = testMode
 
     // Construct a job.
-    cons(new Args(argsMap))
+    val args : Args = new Args(argsMap);
+    SourceTracking.init(args)
+    cons(args)
   }
 
   @tailrec
