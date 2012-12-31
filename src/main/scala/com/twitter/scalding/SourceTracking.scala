@@ -80,7 +80,7 @@ object SourceTracking {
   }
 
   def sourceFilePath(path : String) : String = {
-    source_output_prefix + "/" + path).replaceAll("//", "/").replaceAll("/\\*", "")
+    (source_output_prefix + "/" + path).replaceAll("//", "/").replaceAll("/\\*", "")
   }
 
 }
