@@ -148,7 +148,17 @@ abstract class Source extends java.io.Serializable {
       }
       case hdfsTest @ HadoopTest(conf, buffers) => readOrWrite match {
         case Read => {
-          val buffer = buffers(this)
+          val buffer = 
+            if(SourceTracking.use_sources) {
+              // Add stuff here in order to test the use of tracked sources as inputs.
+              this match {
+                case Tsv(p, fields, _, _) =>
+                  buffers(new Tsv((SourceTracking.source_output_prefix + "/" + this.asInstanceOf[FileSource].hdfsPaths.head).replaceAll("//", "/").replaceAll("/\\*", ""), fields))
+                case _ => null
+              }
+            } else {
+              buffers(this)
+            }
           val fields = hdfsScheme.getSourceFields
           (new MemorySourceTap(buffer.toList.asJava, fields)).asInstanceOf[Tap[JobConf,_,_]]
         }

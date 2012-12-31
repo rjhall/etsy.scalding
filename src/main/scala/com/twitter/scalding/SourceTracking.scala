@@ -78,4 +78,9 @@ object SourceTracking {
       so.writeFrom(RichPipe(x._2).unique(getFields(x._1)))(flowDef, mode)
     }
   }
+
+  def sourceFilePath(path : String) : String = {
+    source_output_prefix + "/" + path).replaceAll("//", "/").replaceAll("/\\*", "")
+  }
+
 }

@@ -99,7 +99,7 @@ abstract class FileSource extends Source {
     if(SourceTracking.track_sources) {
       import Dsl._
       val fields = this.hdfsScheme.getSourceFields
-      val fp = (SourceTracking.source_output_prefix + "/" + hdfsPaths.head).replaceAll("//", "/").replaceAll("/\\*", "")
+      val fp = SourceTracking.sourceFilePath(hdfsPaths.head)
       val q = p.map(fields -> SourceTracking.sourceTrackingField){ te : TupleEntry => Map(fp -> List[Tuple](te.getTuple)) }
       SourceTracking.openForWrite(fp, this, fields)
       q
@@ -146,10 +146,12 @@ abstract class FileSource extends Source {
     }
   }
 
+  // When using --use_sources, intercept the opening of the inputs to redirect to the 
+  // previously output files,
   protected def createHdfsReadTap(hdfsMode : Hdfs) : Tap[JobConf, _, _] = {
     val taps : List[Tap[JobConf, RecordReader[_,_], OutputCollector[_,_]]] =
       goodHdfsPaths(hdfsMode)
-        .toList.map { path => if(SourceTracking.use_sources) (SourceTracking.source_output_prefix + "/" + path).replaceAll("//", "/").replaceAll("/\\*", "") else path }
+        .toList.map { path => if(SourceTracking.use_sources) SourceTracking.sourceFilePath(path) else path }
         .map { path => castHfsTap(new Hfs(hdfsScheme, path, SinkMode.KEEP)) }
     taps.size match {
       case 0 => {

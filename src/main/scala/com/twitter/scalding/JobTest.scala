@@ -90,7 +90,6 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
 
   // This SITS is unfortunately needed to get around Specs
   def finish : Unit = { 
-    SourceTracking.reset  
   }
 
   // Registers test files, initializes the global mode, and creates a job.
@@ -110,6 +109,7 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
 
     // Construct a job.
     val args : Args = new Args(argsMap);
+    SourceTracking.reset  
     SourceTracking.init(args)
     cons(args)
   }
