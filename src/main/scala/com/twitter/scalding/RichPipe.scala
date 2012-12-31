@@ -267,6 +267,36 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   }
 
   /**
+   * Subsample the entries in the pipe.
+   * Hash some fields rather than use random noise, for the sake of reproduceability.
+   */
+  def subsample[A](f : Fields, p : Double)(hash : (A) => Int)
+      (implicit conv : TupleConverter[A]) : Pipe = {
+    val q : Long = math.round(1.0/p)
+    filter[A](f){ input : (A) => hash(input) % q == 0 }(conv)
+  }
+
+  def subsample(p : Double) : Pipe = {
+    subsample[TupleEntry](Fields.ALL, p){ t : TupleEntry => t.getTuple.hashCode }
+  }
+
+  /**
+   * Perform subsampling unless --use_sources is in effect.
+   * This allows the easy creation and use of subsampled data sources.
+   */
+  def optionalSubsample[A](f : Fields, p : Double)(hash : A => Int) 
+      (implicit conv : TupleConverter[A]) : Pipe = {
+    if(SourceTracking.track_sources)
+      subsample[A](f, p)(hash)(conv)
+    else
+      pipe
+  }
+
+  def optionalSubsample(p : Double) : Pipe = {
+    optionalSubsample[TupleEntry](Fields.ALL, p){ t : TupleEntry => t.getTuple.hashCode }
+  }
+
+  /**
    * If you use a map function that does not accept TupleEntry args,
    * which is the common case, an implicit conversion in GeneratedConversions
    * will convert your function into a `(TupleEntry => T)`.  The result type
