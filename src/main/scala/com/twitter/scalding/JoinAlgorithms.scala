@@ -27,6 +27,8 @@ import cascading.operation.filter._
 import cascading.tuple._
 import cascading.cascade._
 
+import com.twitter.algebird.Operators._
+
 import scala.util.Random
 
 /*
@@ -128,14 +130,7 @@ trait JoinAlgorithms {
   def finishJoin(p : Pipe) : Pipe = {
     if(SourceTracking.track_sources)
       p.map((SourceTracking.sourceTrackingField, sourceTrackingJoinField) -> SourceTracking.sourceTrackingField) {
-        x : (Map[String,List[Tuple]], Map[String,List[Tuple]]) =>
-        (for(m <- List(x._1, x._2); kv <- m) yield kv).foldLeft(Map[String,List[Tuple]]()) {
-          (m : Map[String,List[Tuple]], v : (String,List[Tuple])) =>
-            if(m.contains(v._1))
-               m + (v._1 -> (v._2 ++ m(v._1)))
-            else
-               m + v
-        }
+        x : (Map[String,List[Tuple]], Map[String,List[Tuple]]) => x._1 + x._2
       }
     else
       p

@@ -165,16 +165,7 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   // Note that the reduce is effectively chained onto the users operation.
   protected def mergeSources(g : GroupBuilder) : GroupBuilder = {
     if(SourceTracking.track_sources) {
-      g.reduce[Map[String,List[Tuple]]](SourceTracking.sourceTrackingField -> SourceTracking.sourceTrackingField) {
-        (a : Map[String,List[Tuple]], b : Map[String,List[Tuple]]) =>
-        (for(m <- List(a, b); kv <- m) yield kv).foldLeft(Map[String,List[Tuple]]()){
-          (m : Map[String,List[Tuple]], v : (String,List[Tuple])) =>
-            if(m.contains(v._1))
-              m + (v._1 -> (v._2 ++ m(v._1)))
-            else
-              m + v
-        }
-      }
+      g.plus[Map[String,List[String]]](SourceTracking.sourceTrackingField -> SourceTracking.sourceTrackingField)
     } else {
       g
     }
