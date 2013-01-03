@@ -98,10 +98,6 @@ abstract class Source extends java.io.Serializable {
     mode.getReadPipe(this, transformForRead(new Pipe(srcName)))
   }
 
-  def readRichPipe(implicit flowDef : FlowDef, mode : Mode) = {
-    RichPipe(read(flowDef, mode));
-  }
-
   /**
   * write the pipe and return the input so it can be chained into
   * the next operation
@@ -148,17 +144,7 @@ abstract class Source extends java.io.Serializable {
       }
       case hdfsTest @ HadoopTest(conf, buffers) => readOrWrite match {
         case Read => {
-          val buffer = 
-            if(SourceTracking.use_sources) {
-              // Add stuff here in order to test the use of tracked sources as inputs.
-              this match {
-                case Tsv(p, fields, _, _) =>
-                  buffers(new Tsv((SourceTracking.source_output_prefix + "/" + this.asInstanceOf[FileSource].hdfsPaths.head).replaceAll("//", "/").replaceAll("/\\*", ""), fields))
-                case _ => null
-              }
-            } else {
-              buffers(this)
-            }
+          val buffer = buffers(this)
           val fields = hdfsScheme.getSourceFields
           (new MemorySourceTap(buffer.toList.asJava, fields)).asInstanceOf[Tap[JobConf,_,_]]
         }
@@ -201,7 +187,7 @@ trait Mappable[T] extends Source {
   val converter : TupleConverter[T]
   def mapTo[U](out : Fields)(mf : (T) => U)
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    readRichPipe(flowDef, mode).mapTo[T,U](sourceFields -> out)(mf)(converter, setter)
+    RichPipe(read(flowDef, mode)).mapTo[T,U](sourceFields -> out)(mf)(converter, setter)
   }
   /**
   * If you want to filter, you should use this and output a 0 or 1 length Iterable.
@@ -209,7 +195,7 @@ trait Mappable[T] extends Source {
   */
   def flatMapTo[U](out : Fields)(mf : (T) => Iterable[U])
     (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    readRichPipe(flowDef, mode).flatMapTo[T,U](sourceFields -> out)(mf)(converter, setter)
+    RichPipe(read(flowDef, mode)).flatMapTo[T,U](sourceFields -> out)(mf)(converter, setter)
   }
 }
 

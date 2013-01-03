@@ -44,7 +44,7 @@ class Job(val args : Args) extends TupleConversions
   */
   implicit def p2rp(pipe : Pipe) = new RichPipe(pipe)
   implicit def rp2p(rp : RichPipe) = rp.pipe
-  implicit def source2rp(src : Source) : RichPipe = src.readRichPipe
+  implicit def source2rp(src : Source) : RichPipe = RichPipe(src.read)
 
   // This converts an interable into a Source with index (int-based) fields
   implicit def iterToSource[T](iter : Iterable[T])(implicit set: TupleSetter[T], conv : TupleConverter[T]) : Source = {
@@ -87,7 +87,6 @@ class Job(val args : Args) extends TupleConversions
   // Only very different styles of Jobs should override this.
   def buildFlow(implicit mode : Mode) = {
     validateSources(mode)
-    SourceTracking.writeOutputs(mode, flowDef)
     // Sources are good, now connect the flow:
     mode.newFlowConnector(config).connect(flowDef)
   }
@@ -142,7 +141,7 @@ class Job(val args : Args) extends TupleConversions
   }
 
   //Largely for the benefit of Java jobs
-  implicit def read(src : Source) : Pipe = src.readRichPipe.pipe
+  implicit def read(src : Source) : Pipe = src.read
   def write(pipe : Pipe, src : Source) {src.writeFrom(pipe)}
 
   def validateSources(mode : Mode) {

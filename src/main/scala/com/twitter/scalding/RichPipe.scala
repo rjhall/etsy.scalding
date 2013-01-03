@@ -427,11 +427,11 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
       // Disable source tracking (so the flatMapTo removes __source_data).
       SourceTracking.track_sources = false
       outsource.writeFrom(discard(SourceTracking.sourceTrackingField))(flowDef, mode)
-      SourceTracking.sources.foreach{ fp_source : (String, Source) =>
+      SourceTracking.sources.foreach{ orig_ss : (FileSource, FileSource) =>
         val p = pipe
           .project(SourceTracking.sourceTrackingField)
-          .flatMapTo(SourceTracking.sourceTrackingField -> SourceTracking.getFields(fp_source._1)){ x : Map[String, List[Tuple]] => x.getOrElse(fp_source._1, List[Tuple]()) }
-        SourceTracking.writePipe(fp_source._1, p)
+          .flatMapTo(SourceTracking.sourceTrackingField -> SourceTracking.getFields(orig_ss._1)){ x : Map[String, List[Tuple]] => x.getOrElse(orig_ss._1.toString, List[Tuple]()) }
+        SourceTracking.writePipe(orig_ss._1, p)
       }
       // Re-enable source tracking.
       SourceTracking.track_sources = true
