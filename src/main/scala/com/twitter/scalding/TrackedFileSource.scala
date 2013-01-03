@@ -10,6 +10,10 @@ import org.apache.hadoop.mapred.JobConf
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.RecordReader;
 
+object TrackedFileSource {
+  def apply(orig : FileSource, ss : FileSource) = new TrackedFileSource(orig, ss)
+}
+
 class TrackedFileSource(val original : FileSource, val subset : FileSource) extends FileSource {
 
   override def equals(a : Any) = {
