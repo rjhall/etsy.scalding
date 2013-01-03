@@ -125,13 +125,16 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
    * takes any number of parameters as long as we can convert
    * them to a fields object
    */
-  def project(fields : Fields) = {
-    if(SourceTracking.track_sources) {
-        val f = if(fields.contains(SourceTracking.sourceTrackingField)) fields else fields.append(SourceTracking.sourceTrackingField)
-        new Each(pipe, f, new Identity(f))
-    } else {
-        new Each(pipe, fields, new Identity(fields))
-    }
+  def project(fields : Fields)(implicit tracking : Tracking) = {
+      tracking.trackingFields match {
+          case Some(trackingFields) => {  
+              val f = if(fields.contains(trackingFields)) fields else fields.append(trackingFields)
+              new Each(pipe, f, new Identity(f))
+          }
+          case None => {
+              new Each(pipe, fields, new Identity(fields))
+          }
+      }
   }
 
   /**
@@ -157,18 +160,8 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
    *   _.size.max('f1) etc...
    * }}}
    */
-  def groupBy(f : Fields)(builder : GroupBuilder => GroupBuilder) : Pipe = {
-    mergeSources(builder(new GroupBuilder(f))).schedule(pipe.getName, pipe)
-  }
-
-  // Handle the merging of tracked source data during a grouping operation.
-  // Note that the reduce is effectively chained onto the users operation.
-  protected def mergeSources(g : GroupBuilder) : GroupBuilder = {
-    if(SourceTracking.track_sources) {
-      g.plus[Map[String,List[String]]](SourceTracking.sourceTrackingField -> SourceTracking.sourceTrackingField)
-    } else {
-      g
-    }
+  def groupBy(f : Fields)(builder : GroupBuilder => GroupBuilder)(implicit tracking : Tracking) : Pipe = {
+    tracking.onGroupBy(builder(new GroupBuilder(f))).schedule(pipe.getName, pipe)
   }
 
   /**
@@ -210,10 +203,10 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   /**
    * Like groupAll, but randomly groups data into n reducers.
    */
-  def groupRandomly(n : Int)(gs: GroupBuilder => GroupBuilder) : Pipe = {
+  def groupRandomly(n : Int)(gs: GroupBuilder => GroupBuilder)(implicit tracking : Tracking) : Pipe = {
     using(new Random with Stateful)
       .map(()->'__shard__) { (r:Random, _:Unit) => r.nextInt(n) }
-      .groupBy('__shard__) { g : GroupBuilder => mergeSources(gs(g)).reducers(n) }
+      .groupBy('__shard__) { g : GroupBuilder => gs(g).reducers(n) } (tracking)
       .discard('__shard__)
   }
 
@@ -272,22 +265,6 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   }
 
   /**
-   * Perform subsampling unless --use_sources is in effect.
-   * This allows the easy creation and use of subsampled data sources.
-   */
-  def optionalSubsample[A](f : Fields, p : Double)(hash : A => Int) 
-      (implicit conv : TupleConverter[A]) : Pipe = {
-    if(SourceTracking.track_sources)
-      subsample[A](f, p)(hash)(conv)
-    else
-      pipe
-  }
-
-  def optionalSubsample(p : Double) : Pipe = {
-    optionalSubsample[TupleEntry](Fields.ALL, p){ t : TupleEntry => t.getTuple.hashCode }
-  }
-
-  /**
    * If you use a map function that does not accept TupleEntry args,
    * which is the common case, an implicit conversion in GeneratedConversions
    * will convert your function into a `(TupleEntry => T)`.  The result type
@@ -324,13 +301,15 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
       each(fs)(new MapFunction[A,T](fn, _, conv, setter))
   }
   def mapTo[A,T](fs : (Fields,Fields))(fn : A => T)
-                (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
+                (implicit conv : TupleConverter[A], setter : TupleSetter[T], tracking : Tracking) : Pipe = {
       conv.assertArityMatches(fs._1)
       setter.assertArityMatches(fs._2)
-      if(SourceTracking.track_sources)
-          each(fs)(new MapFunction[A,T](fn, _, conv, setter)).project(fs._2)
-      else
-          eachTo(fs)(new MapFunction[A,T](fn, _, conv, setter))
+      tracking.trackingFields match {
+          case Some(fields)  =>
+              each(fs)(new MapFunction[A,T](fn, _, conv, setter)).project(fs._2)
+          case None =>
+              eachTo(fs)(new MapFunction[A,T](fn, _, conv, setter))
+      }
   }
   def flatMap[A,T](fs : (Fields,Fields))(fn : A => Iterable[T])
                 (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
@@ -339,13 +318,15 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
       each(fs)(new FlatMapFunction[A,T](fn, _, conv, setter))
   }
   def flatMapTo[A,T](fs : (Fields,Fields))(fn : A => Iterable[T])
-                (implicit conv : TupleConverter[A], setter : TupleSetter[T]) : Pipe = {
+                (implicit conv : TupleConverter[A], setter : TupleSetter[T], tracking : Tracking) : Pipe = {
       conv.assertArityMatches(fs._1)
       setter.assertArityMatches(fs._2)
-      if(SourceTracking.track_sources)
-          each(fs)(new FlatMapFunction[A,T](fn, _, conv, setter)).project(fs._2)
-      else
-          eachTo(fs)(new FlatMapFunction[A,T](fn, _, conv, setter))
+      tracking.trackingFields match {
+          case Some(fields) =>
+              each(fs)(new FlatMapFunction[A,T](fn, _, conv, setter)).project(fs._2)
+          case None =>
+              eachTo(fs)(new FlatMapFunction[A,T](fn, _, conv, setter))
+      }
   }
 
   /**
@@ -422,23 +403,12 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
 
   def debug = new Each(pipe, new Debug())
 
-  def write(outsource : Source)(implicit flowDef : FlowDef, mode : Mode) = {
-    if(SourceTracking.track_sources) {
-      // Disable source tracking (so the flatMapTo removes __source_data).
-      SourceTracking.track_sources = false
-      outsource.writeFrom(discard(SourceTracking.sourceTrackingField))(flowDef, mode)
-      SourceTracking.sources.foreach{ orig_ss : (FileSource, FileSource) =>
-        val p = pipe
-          .project(SourceTracking.sourceTrackingField)
-          .flatMapTo(SourceTracking.sourceTrackingField -> SourceTracking.getFields(orig_ss._1)){ x : Map[String, List[Tuple]] => x.getOrElse(orig_ss._1.toString, List[Tuple]()) }
-        SourceTracking.writePipe(orig_ss._1, p)
-      }
-      // Re-enable source tracking.
-      SourceTracking.track_sources = true
-    } else {
-      outsource.writeFrom(pipe)(flowDef, mode)
+  def write(outsource : Source)(implicit flowDef : FlowDef, mode : Mode, tracking : Tracking) = {
+    tracking.trackingFields match {
+      case Some(fields) => outsource.writeFrom(discard(fields))(flowDef, mode)
+      case None => outsource.writeFrom(pipe)(flowDef, mode)
     }
-    pipe
+    tracking.onWrite(pipe)
   }
   /**
    * Adds a trap to the current pipe,
@@ -491,11 +461,11 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   /**
    * Same as pack but only the to fields are preserved.
    */
-  def packTo[T](fs : (Fields, Fields))(implicit packer : TuplePacker[T], setter : TupleSetter[T]) : Pipe = {
+  def packTo[T](fs : (Fields, Fields))(implicit packer : TuplePacker[T], setter : TupleSetter[T], tracking : Tracking) : Pipe = {
     val (fromFields, toFields) = fs
     assert(toFields.size == 1, "Can only output 1 field in pack")
     val conv = packer.newConverter(fromFields)
-    pipe.mapTo(fs) { input : T => input } (conv, setter)
+    pipe.mapTo(fs) { input : T => input } (conv, setter, tracking)
   }
 
   /**
@@ -518,11 +488,11 @@ class RichPipe(val pipe : Pipe) extends java.io.Serializable with JoinAlgorithms
   /**
    * Same as unpack but only the to fields are preserved.
    */
-  def unpackTo[T](fs : (Fields, Fields))(implicit unpacker : TupleUnpacker[T], conv : TupleConverter[T]) : Pipe = {
+  def unpackTo[T](fs : (Fields, Fields))(implicit unpacker : TupleUnpacker[T], conv : TupleConverter[T], tracking : Tracking) : Pipe = {
     val (fromFields, toFields) = fs
     assert(fromFields.size == 1, "Can only take 1 input field in unpack")
     val setter = unpacker.newSetter(toFields)
-    pipe.mapTo(fs) { input : T => input } (conv, setter)
+    pipe.mapTo(fs) { input : T => input } (conv, setter, tracking)
   }
 }
 

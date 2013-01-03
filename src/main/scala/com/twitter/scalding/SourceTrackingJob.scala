@@ -5,10 +5,16 @@ import cascading.pipe.Pipe
 
 class SourceTrackingJob(args : Args) extends Job(args) {
 
-   override def buildFlow(implicit mode : Mode) = {
-     validateSources(mode)
-     SourceTracking.writeOutputs(mode, flowDef)
-     // Sources are good, now connect the flow:
-     mode.newFlowConnector(config).connect(flowDef)
-   }
+  Tracking.init(args)
+
+  def TrackedFileSource(o : FileSource, s : FileSource) : TrackedFileSource = {
+    new TrackedFileSource(o, s, args)
+  }
+  
+  override def buildFlow(implicit mode : Mode) = {
+    validateSources(mode)
+    Tracking.tracking.onFlowComplete(flowDef, mode)
+    // Sources are good, now connect the flow:
+    mode.newFlowConnector(config).connect(flowDef)
+  }
 }

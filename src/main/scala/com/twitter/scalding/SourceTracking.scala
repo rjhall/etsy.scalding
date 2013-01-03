@@ -2,69 +2,127 @@ package com.twitter.scalding
 
 import cascading.flow.FlowDef
 import cascading.pipe.Pipe
-import cascading.tuple.Fields
+import cascading.tuple.{Fields,Tuple,TupleEntry}
 
+import com.twitter.algebird.Operators._
 
-
-object SourceTracking {
-
-  var track_sources : Boolean = false;
-  var use_sources : Boolean = false;
-
-  // Original data source -> output (subset) data source.
-  var sources : Map[FileSource, FileSource] = Map[FileSource, FileSource]()
-
-  // Original data source -> pipe which accumulates output.
-  var tail_pipes : Map[FileSource, Pipe] = Map[FileSource,Pipe]()
-
-  var source_tracking_field_name : String = "__source_data__"
-
+object Tracking {
+  implicit var tracking : Tracking = new NullTracking()
+  
   def init(args : Args) : Unit = {
-    track_sources = args.boolean("write_sources")
-    use_sources = args.boolean("use_sources")
-    source_tracking_field_name = args.getOrElse("source_tracking_field_name", "__source_data__")
+    if(args.boolean("write_sources"))
+      tracking = new InputTracking(args.getOrElse("tracking_field", "__source_data__"))
   }
 
-  def reset : Unit = { 
-    track_sources = false;
-    use_sources = false;
-    sources = Map[FileSource, FileSource]()
-    tail_pipes = Map[FileSource,Pipe]()
+  def clear : Unit = {
+    tracking = new NullTracking()
   }
-
-  def sourceTrackingField : Fields = new Fields(source_tracking_field_name)
-
-  def getOpenSource(orig : FileSource) : Source = {
-    sources.getOrElse(orig, null)
-  }
-
-  def getFields(orig : FileSource) : Fields = {
-    println(orig.hdfsScheme.getSourceFields)
-    orig.hdfsScheme.getSourceFields
-  }
-
-  def register(orig : FileSource, subset : FileSource) : Unit = {
-    if(!sources.contains(orig)) {
-      sources += (orig -> subset)
-    } else if(sources(orig) != subset) {
-      sys.error("asdf");
-    }
-  }
-
-  def writePipe(orig : FileSource, pipe : Pipe) : Unit = {
-    if(tail_pipes.contains(orig)) {
-      tail_pipes += (orig -> (RichPipe(pipe) ++ tail_pipes(orig)))
-    } else {
-      tail_pipes += (orig -> pipe)
-    }
-  }
-
-  def writeOutputs(mode : Mode, flowDef : FlowDef) : Unit = {
-    track_sources = false;
-    tail_pipes.foreach{ x : (FileSource, Pipe) =>
-      val so = getOpenSource(x._1)
-      so.writeFrom(RichPipe(x._2).unique(getFields(x._1)))(flowDef, mode)
-    }
-  }
-
 }
+
+abstract class Tracking {
+  // Called after Source.read by TrackedFileSource
+  def afterRead(src : Source, pipe : Pipe) : Pipe
+
+  // Called by RichPipe.write
+  def onWrite(pipe : Pipe) : Pipe
+
+  // Called by JoinAlgorithms
+  def beforeJoin(pipe : Pipe, side : Boolean) : Pipe
+  def afterJoin(pipe : Pipe) : Pipe
+
+  // Called by RichPipe.groupBy
+  def onGroupBy(groupbuilder : GroupBuilder) : GroupBuilder
+
+  // Called by SourceTrackingJob.buildFlow
+  def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit
+
+  // The fields which get tracked (so that RichPipe doesnt nuke these fields
+  // in  e.g., mapTo and project)
+  def trackingFields : Option[Fields]
+}
+
+// This class does no tracking.
+class NullTracking extends Tracking {
+  override def afterRead(src : Source, pipe : Pipe) : Pipe = pipe
+  override def onWrite(pipe : Pipe) : Pipe = pipe
+  override def beforeJoin(pipe : Pipe, side : Boolean) : Pipe = pipe
+  override def afterJoin(pipe : Pipe) : Pipe = pipe
+  override def onGroupBy(groupbuilder : GroupBuilder) : GroupBuilder = groupbuilder
+  override def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit = {}
+  override def trackingFields : Option[Fields] = None
+}
+
+// This class traces input records throughout the computation by placing
+// the source file tuple contents into a special field, and tracking this through
+// the computation.
+class InputTracking(val fieldName : String) extends Tracking {
+  import Dsl._
+
+  val field = new Fields(fieldName)
+
+  override def trackingFields : Option[Fields] = Some(field)
+
+  protected var sources = Set[TrackedFileSource]()
+  protected var tailpipes = Map[String, Pipe]()
+  
+  def register(src : TrackedFileSource) : Unit = {
+    sources += src
+  }
+
+  override def afterRead(src : Source, pipe : Pipe) : Pipe = {
+    src match {
+      case tf : TrackedFileSource => {
+        register(tf)
+        val fp = tf.toString
+        pipe.map(tf.hdfsScheme.getSourceFields -> field){ te : TupleEntry => Map(fp -> List[Tuple](te.getTuple)) }
+      }
+      case _ => {
+        pipe
+      }
+    }
+  }
+
+  override def onWrite(pipe : Pipe) : Pipe = {
+    // Nuke the implicit tracking object to turn off tracking for this step.
+    Tracking.tracking = new NullTracking()
+    sources.foreach { ts : TrackedFileSource =>
+      val n = ts.toString
+      val p = pipe.flatMapTo(fieldName -> ts.hdfsScheme.getSourceFields){ m : Map[String, List[Tuple]] => m.getOrElse(n, List[Tuple]()) }
+      if(tailpipes.contains(n))
+        tailpipes += (n -> (RichPipe(p) ++ tailpipes(n)))
+      else
+        tailpipes += (n -> p)
+    }
+    // Resume tracking
+    Tracking.tracking = this
+    pipe
+  }
+
+  override def beforeJoin(pipe : Pipe, side : Boolean) : Pipe = {
+    if(side)
+      pipe.rename(field -> new Fields(fieldName+"_"))
+    else
+      pipe
+  }
+
+  override def afterJoin(pipe : Pipe) : Pipe = {
+    pipe.map((fieldName, fieldName+"_") -> fieldName){ m : (Map[String,List[Tuple]], Map[String,List[Tuple]]) => m._1 + m._2}
+  }
+
+  override def onGroupBy(groupbuilder : GroupBuilder) : GroupBuilder = {
+    groupbuilder.plus[Map[String,List[Tuple]]](field -> field)
+  }
+
+  override def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit = {
+    // Nuke the implicit tracking object to turn off tracking for this step.
+    Tracking.tracking = new NullTracking()
+    sources.foreach { ts : TrackedFileSource => 
+      val n = ts.toString
+      if(tailpipes.contains(n)) {
+        ts.subset.writeFrom(tailpipes(n))(flowDef, mode)
+      }
+    }
+  }
+}
+
+

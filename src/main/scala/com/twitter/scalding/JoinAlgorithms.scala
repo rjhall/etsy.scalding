@@ -118,22 +118,14 @@ trait JoinAlgorithms {
     }
   }
 
-  val sourceTrackingJoinField : Fields = new Fields(SourceTracking.source_tracking_field_name + "_2")
-
-  def prepareJoin(p : Pipe) : Pipe = {
-    if(SourceTracking.track_sources)
-      p.rename(SourceTracking.sourceTrackingField, sourceTrackingJoinField)
-    else
-      p
+  // TODO: fix so that the tracker gets to also see the other side of the join.
+  // Not currently important for source tracking.
+  def prepareJoin(p : Pipe)(implicit tracking : Tracking) : Pipe = {
+      tracking.beforeJoin(p, true)
   }
 
-  def finishJoin(p : Pipe) : Pipe = {
-    if(SourceTracking.track_sources)
-      p.map((SourceTracking.sourceTrackingField, sourceTrackingJoinField) -> SourceTracking.sourceTrackingField) {
-        x : (Map[String,List[Tuple]], Map[String,List[Tuple]]) => x._1 + x._2
-      }
-    else
-      p
+  def finishJoin(p : Pipe)(implicit tracking : Tracking) : Pipe = {
+      tracking.afterJoin(p)
   }
 
   /**

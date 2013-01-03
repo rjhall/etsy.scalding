@@ -10,12 +10,11 @@ import org.apache.hadoop.mapred.JobConf
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.RecordReader;
 
-object TrackedFileSource {
-  def apply(orig : FileSource, ss : FileSource) = new TrackedFileSource(orig, ss)
-}
+class TrackedFileSource(val original : FileSource, val subset : FileSource, args : Args) extends FileSource {
 
-class TrackedFileSource(val original : FileSource, val subset : FileSource) extends FileSource {
+  val use_sources = args.boolean("use_sources")
 
+  // To allow for use in a map, as in the testing code.
   override def equals(a : Any) = {
     a.isInstanceOf[TrackedFileSource] && 
       a.asInstanceOf[TrackedFileSource].original == original &&
@@ -33,14 +32,14 @@ class TrackedFileSource(val original : FileSource, val subset : FileSource) exte
   }
 
   override def hdfsPaths : Iterable[String] = {
-    if(SourceTracking.use_sources)
+    if(use_sources)
       subset.hdfsPaths
     else
       original.hdfsPaths
   }
 
   override def localPath : String = {
-    if(SourceTracking.use_sources)
+    if(use_sources)
       subset.localPath
     else
       original.localPath
@@ -51,22 +50,8 @@ class TrackedFileSource(val original : FileSource, val subset : FileSource) exte
     pipe
   }
 
-  override def read(implicit flowDef : FlowDef, mode : Mode) : Pipe = { 
-    if(SourceTracking.track_sources)
-      prepareSource
-    else
-      super.read
-  } 
-
-  def prepareSource(implicit flowDef : FlowDef, mode : Mode) : Pipe = {
-    // Register file for tracking.
-    SourceTracking.register(original, subset)
-    // Add hidden field for source data tracking. 
-    import Dsl._
-    val fields = hdfsScheme.getSourceFields
-    // Use the string representation of the original source file as its identifier.
-    val fp = original.toString
-    super.read.map(fields -> SourceTracking.sourceTrackingField){ te : TupleEntry => Map(fp -> List[Tuple](te.getTuple)) }
+  override def read(implicit flowDef : FlowDef, mode : Mode, tracking : Tracking) : Pipe = {
+    tracking.afterRead(this, super.read)
   }
 
   override def toString : String = {

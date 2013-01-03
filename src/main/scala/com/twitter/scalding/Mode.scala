@@ -55,11 +55,9 @@ object Mode {
 
     if (args.boolean("local"))
        Local(strictSources)
-    else if (args.boolean("hdfs")) {
-      val h = Hdfs(strictSources, config)
-      SourceTracking.init(args)
-      h
-    } else
+    else if (args.boolean("hdfs"))
+      Hdfs(strictSources, config)
+    else
       sys.error("[ERROR] Mode must be one of --local or --hdfs, you provided '" + mode + "'")
   }
 }
@@ -72,7 +70,7 @@ abstract class Mode(val sourceStrictness : Boolean) {
   // NOTE: there is a subtle bug in scala regarding case classes
   // with multiple sets of arguments, and their equality.
   // For this reason, we use Source.toString as the key in this map
-  val sourceMap = MMap[String, (Source, Pipe)]()
+  protected val sourceMap = MMap[String, (Source, Pipe)]()
 
   def config = Map[AnyRef,AnyRef]()
   def newFlowConnector(props : Map[AnyRef,AnyRef]) : FlowConnector

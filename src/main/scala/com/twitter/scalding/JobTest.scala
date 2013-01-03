@@ -89,8 +89,7 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
   }
 
   // This SITS is unfortunately needed to get around Specs
-  def finish : Unit = { 
-  }
+  def finish : Unit = { () }
 
   // Registers test files, initializes the global mode, and creates a job.
   private def initJob(useHadoop : Boolean) : Job = {
@@ -108,10 +107,7 @@ class JobTest(cons : (Args) => Job) extends TupleConversions {
     Mode.mode = testMode
 
     // Construct a job.
-    val args : Args = new Args(argsMap);
-    SourceTracking.reset  
-    SourceTracking.init(args)
-    cons(args)
+    cons(new Args(argsMap))
   }
 
   @tailrec

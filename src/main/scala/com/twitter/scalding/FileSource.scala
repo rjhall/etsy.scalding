@@ -275,13 +275,13 @@ class TypedDelimited[T](p : Seq[String], override val fields : Fields,
 
   // For Mappable:
   override def mapTo[U](out : Fields)(fun : (T) => U)
-    (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).mapTo[T,U](sourceFields -> out)(fun)(converter, setter)
+    (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U], tracking : Tracking) = {
+    RichPipe(read(flowDef, mode, tracking)).mapTo[T,U](sourceFields -> out)(fun)(converter, setter, tracking)
   }
   // For Mappable:
   override def flatMapTo[U](out : Fields)(fun : (T) => Iterable[U])
-    (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U]) = {
-    RichPipe(read(flowDef, mode)).flatMapTo[T,U](sourceFields -> out)(fun)(converter, setter)
+    (implicit flowDef : FlowDef, mode : Mode, setter : TupleSetter[U], tracking : Tracking) = {
+    RichPipe(read(flowDef, mode, tracking)).flatMapTo[T,U](sourceFields -> out)(fun)(converter, setter, tracking)
   }
 
 

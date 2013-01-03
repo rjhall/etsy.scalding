@@ -20,7 +20,7 @@ class SourceTrackingMapTest extends Specification with TupleConversions {
     "correctly track sources" in {
       JobTest("com.twitter.scalding.SourceTrackingMapJob")
         .arg("write_sources", "true")
-        .source(TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample")), List(("0","1"), ("1","3"), ("2","9")))
+        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9")))
         .sink[(Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(3)
@@ -48,7 +48,7 @@ class UseSourceTrackingTest extends Specification with TupleConversions {
     "correctly use provided sources" in {
       JobTest("com.twitter.scalding.SourceTrackingMapJob")
         .arg("use_sources", "true")
-        .source(TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample")), List(("1","1"), ("1","3"), ("2","9")))
+        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("1","1"), ("1","3"), ("2","9")))
         .sink[(Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(3)
@@ -77,8 +77,8 @@ class SourceTrackingJoinTest extends Specification with TupleConversions {
     "correctly track sources" in {
       JobTest("com.twitter.scalding.SourceTrackingJoinJob")
         .arg("write_sources", "true")
-        .source(TrackedFileSource(Tsv("input", ('x,'y)), Tsv("sample/input")), List(("0","1"), ("1","3"), ("2","9"), ("10", "0")))
-        .source(TrackedFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2")), List(("5","1"), ("1","4"), ("2","7")))
+        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("sample/input"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9"), ("10", "0")))
+        .source(new TrackedFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2"), Args("asdf")), List(("5","1"), ("1","4"), ("2","7")))
         .sink[(Int,Int,Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(2)
@@ -118,7 +118,7 @@ class SourceTrackingGroupByTest extends Specification with TupleConversions {
     "correctly track sources" in {
       JobTest("com.twitter.scalding.SourceTrackingGroupByJob")
         .arg("write_sources", "true")
-        .source(TrackedFileSource(Tsv("input", ('x,'y)), Tsv("foo/input")), List(("0","1"), ("0","3"), ("1","9"), ("1", "1"), ("2", "5"), ("2", "3"), ("3", "3")))
+        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("foo/input"), Args("asdf")), List(("0","1"), ("0","3"), ("1","9"), ("1", "1"), ("2", "5"), ("2", "3"), ("3", "3")))
         .sink[(Int,Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(2)

@@ -45,8 +45,8 @@ class PipeTExtensions(pipe : Pipe) extends Serializable {
    *  The above sums all the tuples and returns a TypedPipe[Int] which has the total sum.
    */
   def typed[T,U](fielddef : (Fields, Fields))(fn : TypedPipe[T] => TypedPipe[U])
-    (implicit conv : TupleConverter[T], setter : TupleSetter[U]) : Pipe = {
-    fn(TypedPipe.from(pipe, fielddef._1)(conv)).toPipe(fielddef._2)(setter)
+    (implicit conv : TupleConverter[T], setter : TupleSetter[U], tracking : Tracking) : Pipe = {
+    fn(TypedPipe.from(pipe, fielddef._1)(conv)).toPipe(fielddef._2)(setter,tracking)
   }
   def toTypedPipe[T](fields : Fields)(implicit conv : TupleConverter[T]) : TypedPipe[T] = {
     TypedPipe.from[T](pipe, fields)(conv)
@@ -82,7 +82,7 @@ class TypedPipe[T] private (inpipe : Pipe, fields : Fields, flatMapFn : (TupleEn
    * The output pipe has a single item CTuple with an object of type T in position 0
    */
   protected lazy val pipe : Pipe = {
-    inpipe.flatMapTo(fields -> 0)(flatMapFn)(implicitly[TupleConverter[TupleEntry]], SingleSetter)
+    inpipe.flatMapTo(fields -> 0)(flatMapFn)(implicitly[TupleConverter[TupleEntry]], SingleSetter, Tracking.tracking)
   }
 
   /** Same as groupAll.aggregate.values
@@ -140,29 +140,29 @@ class TypedPipe[T] private (inpipe : Pipe, fields : Fields, flatMapFn : (TupleEn
    */
   def sum(implicit plus: Monoid[T]): TypedPipe[T] = groupAll.sum.values
 
-  def toPipe(fieldNames : Fields)(implicit setter : TupleSetter[T]) : Pipe = {
+  def toPipe(fieldNames : Fields)(implicit setter : TupleSetter[T], tracking : Tracking) : Pipe = {
     val conv = implicitly[TupleConverter[TupleEntry]]
-    inpipe.flatMapTo(fields -> fieldNames)(flatMapFn)(conv, setter)
+    inpipe.flatMapTo(fields -> fieldNames)(flatMapFn)(conv, setter, tracking)
   }
-  def unpackToPipe(fieldNames : Fields)(implicit up : TupleUnpacker[T]) : Pipe = {
+  def unpackToPipe(fieldNames : Fields)(implicit up : TupleUnpacker[T], tracking : Tracking) : Pipe = {
     val setter = up.newSetter(fieldNames)
-    toPipe(fieldNames)(setter)
+    toPipe(fieldNames)(setter, tracking)
   }
 
   /** A convenience method equivalent to toPipe(fieldNames).write(dest)
    * @return a pipe equivalent to the current pipe.
    */
   def write(fieldNames : Fields, dest : Source)
-    (implicit conv : TupleConverter[T], setter : TupleSetter[T], flowDef : FlowDef, mode : Mode) : TypedPipe[T] = {
-    val pipe = toPipe(fieldNames)(setter)
+    (implicit conv : TupleConverter[T], setter : TupleSetter[T], flowDef : FlowDef, mode : Mode, tracking : Tracking) : TypedPipe[T] = {
+    val pipe = toPipe(fieldNames)(setter, tracking)
     pipe.write(dest)
     // Now, we have written out, so let's start from here with the new pipe:
     // If we don't do this, Cascading's flow planner can't see what's happening
     TypedPipe.from(pipe, fieldNames)(conv)
   }
   def write(dest: Source)
-    (implicit conv : TupleConverter[T], setter : TupleSetter[T], flowDef : FlowDef, mode : Mode) : TypedPipe[T] = {
-    write(Dsl.intFields(0 until setter.arity), dest)(conv,setter,flowDef,mode)
+    (implicit conv : TupleConverter[T], setter : TupleSetter[T], flowDef : FlowDef, mode : Mode, tracking : Tracking) : TypedPipe[T] = {
+    write(Dsl.intFields(0 until setter.arity), dest)(conv,setter,flowDef,mode,tracking)
   }
 
   def keys[K](implicit ev : <:<[T,(K,_)]) : TypedPipe[K] = map { _._1 }
