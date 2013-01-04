@@ -10,15 +10,15 @@ import org.apache.hadoop.mapred.JobConf
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.RecordReader;
 
-class TrackedFileSource(val original : FileSource, val subset : FileSource, args : Args) extends FileSource {
+class TracingFileSource(val original : FileSource, val subset : FileSource, args : Args) extends FileSource {
 
   val use_sources = args.boolean("use_sources")
 
   // To allow for use in a map, as in the testing code.
   override def equals(a : Any) = {
-    a.isInstanceOf[TrackedFileSource] && 
-      a.asInstanceOf[TrackedFileSource].original == original &&
-      a.asInstanceOf[TrackedFileSource].subset == subset
+    a.isInstanceOf[TracingFileSource] && 
+      a.asInstanceOf[TracingFileSource].original == original &&
+      a.asInstanceOf[TracingFileSource].subset == subset
   }
   
   override def hashCode = original.hashCode
@@ -50,8 +50,8 @@ class TrackedFileSource(val original : FileSource, val subset : FileSource, args
     pipe
   }
 
-  override def read(implicit flowDef : FlowDef, mode : Mode, tracking : Tracking) : Pipe = {
-    tracking.afterRead(this, super.read)
+  override def read(implicit flowDef : FlowDef, mode : Mode, tracing : Tracing) : Pipe = {
+    tracing.afterRead(this, super.read)
   }
 
   override def toString : String = {

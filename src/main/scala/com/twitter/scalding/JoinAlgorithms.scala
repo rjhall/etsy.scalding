@@ -119,13 +119,13 @@ trait JoinAlgorithms {
   }
 
   // TODO: fix so that the tracker gets to also see the other side of the join.
-  // Not currently important for source tracking.
-  def prepareJoin(p : Pipe)(implicit tracking : Tracking) : Pipe = {
-      tracking.beforeJoin(p, true)
+  // Not currently important for source tracing.
+  def prepareJoin(p : Pipe)(implicit tracing : Tracing) : Pipe = {
+      tracing.beforeJoin(p, true)
   }
 
-  def finishJoin(p : Pipe)(implicit tracking : Tracking) : Pipe = {
-      tracking.afterJoin(p)
+  def finishJoin(p : Pipe)(implicit tracing : Tracing) : Pipe = {
+      tracing.afterJoin(p)
   }
 
   /**

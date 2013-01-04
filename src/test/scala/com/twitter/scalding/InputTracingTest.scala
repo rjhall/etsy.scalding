@@ -7,20 +7,20 @@ import cascading.tuple.TupleEntry
 import org.specs._
 import java.lang.{Integer => JInt}
 
-class SourceTrackingMapJob(args : Args) extends SourceTrackingJob(args) {
-  TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample"))
+class InputTracingMapJob(args : Args) extends InputTracingJob(args) {
+  TracingFileSource(Tsv("input", ('x,'y)), Tsv("subsample"))
     .mapTo(('x, 'y) -> 'z){ x : (Int, Int) => x._1 + x._2 }
     .write(Tsv("output"))
 }
 
-class SourceTrackingMapTest extends Specification with TupleConversions {
+class InputTracingMapTest extends Specification with TupleConversions {
   import Dsl._
   "Running with --write_sources" should {
     //Set up the job:
     "correctly track sources" in {
-      JobTest("com.twitter.scalding.SourceTrackingMapJob")
+      JobTest("com.twitter.scalding.InputTracingMapJob")
         .arg("write_sources", "true")
-        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9")))
+        .source(new TracingFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9")))
         .sink[(Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(3)
@@ -41,14 +41,14 @@ class SourceTrackingMapTest extends Specification with TupleConversions {
   }
 }
 
-class UseSourceTrackingTest extends Specification with TupleConversions {
+class UseInputTracingTest extends Specification with TupleConversions {
   import Dsl._
   "Running with --use_sources" should {
     //Set up the job:
     "correctly use provided sources" in {
-      JobTest("com.twitter.scalding.SourceTrackingMapJob")
+      JobTest("com.twitter.scalding.InputTracingMapJob")
         .arg("use_sources", "true")
-        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("1","1"), ("1","3"), ("2","9")))
+        .source(new TracingFileSource(Tsv("input", ('x,'y)), Tsv("subsample"), Args("asdf")), List(("1","1"), ("1","3"), ("2","9")))
         .sink[(Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(3)
@@ -63,22 +63,22 @@ class UseSourceTrackingTest extends Specification with TupleConversions {
 }
 
 
-class SourceTrackingJoinJob(args : Args) extends SourceTrackingJob(args) {
-  TrackedFileSource(Tsv("input", ('x,'y)), Tsv("sample/input"))
-    .joinWithSmaller('x -> 'x, TrackedFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2")).read)
+class InputTracingJoinJob(args : Args) extends InputTracingJob(args) {
+  TracingFileSource(Tsv("input", ('x,'y)), Tsv("sample/input"))
+    .joinWithSmaller('x -> 'x, TracingFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2")).read)
     .project('x, 'y, 'z)
     .write(Tsv("output"))
 }
 
-class SourceTrackingJoinTest extends Specification with TupleConversions {
+class InputTracingJoinTest extends Specification with TupleConversions {
   import Dsl._
-  "Source tracking join" should {
+  "Source tracing join" should {
     //Set up the job:
     "correctly track sources" in {
-      JobTest("com.twitter.scalding.SourceTrackingJoinJob")
+      JobTest("com.twitter.scalding.InputTracingJoinJob")
         .arg("write_sources", "true")
-        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("sample/input"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9"), ("10", "0")))
-        .source(new TrackedFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2"), Args("asdf")), List(("5","1"), ("1","4"), ("2","7")))
+        .source(new TracingFileSource(Tsv("input", ('x,'y)), Tsv("sample/input"), Args("asdf")), List(("0","1"), ("1","3"), ("2","9"), ("10", "0")))
+        .source(new TracingFileSource(Tsv("input2", ('x, 'z)), Tsv("sample/input2"), Args("asdf")), List(("5","1"), ("1","4"), ("2","7")))
         .sink[(Int,Int,Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(2)
@@ -104,21 +104,21 @@ class SourceTrackingJoinTest extends Specification with TupleConversions {
 }
 
 
-class SourceTrackingGroupByJob(args : Args) extends SourceTrackingJob(args) {
-  TrackedFileSource(Tsv("input", ('x,'y)), Tsv("foo/input")).groupBy('x){ _.sum('y -> 'y) }
+class InputTracingGroupByJob(args : Args) extends InputTracingJob(args) {
+  TracingFileSource(Tsv("input", ('x,'y)), Tsv("foo/input")).groupBy('x){ _.sum('y -> 'y) }
     .filter('x) { x : Int => x < 2 }
     .map('y -> 'y){ y : Double => y.toInt }
     .write(Tsv("output"))
 }
 
-class SourceTrackingGroupByTest extends Specification with TupleConversions {
+class InputTracingGroupByTest extends Specification with TupleConversions {
   import Dsl._
-  "Source tracking groupby" should {
+  "Source tracing groupby" should {
     //Set up the job:
     "correctly track sources" in {
-      JobTest("com.twitter.scalding.SourceTrackingGroupByJob")
+      JobTest("com.twitter.scalding.InputTracingGroupByJob")
         .arg("write_sources", "true")
-        .source(new TrackedFileSource(Tsv("input", ('x,'y)), Tsv("foo/input"), Args("asdf")), List(("0","1"), ("0","3"), ("1","9"), ("1", "1"), ("2", "5"), ("2", "3"), ("3", "3")))
+        .source(new TracingFileSource(Tsv("input", ('x,'y)), Tsv("foo/input"), Args("asdf")), List(("0","1"), ("0","3"), ("1","9"), ("1", "1"), ("2", "5"), ("2", "3"), ("3", "3")))
         .sink[(Int,Int)](Tsv("output")) { outBuf =>
           val unordered = outBuf.toSet
           unordered.size must be_==(2)

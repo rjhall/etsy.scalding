@@ -6,21 +6,21 @@ import cascading.tuple.{Fields,Tuple,TupleEntry}
 
 import com.twitter.algebird.Operators._
 
-object Tracking {
-  implicit var tracking : Tracking = new NullTracking()
+object Tracing {
+  implicit var tracing : Tracing = new NullTracing()
   
   def init(args : Args) : Unit = {
     if(args.boolean("write_sources"))
-      tracking = new InputTracking(args.getOrElse("tracking_field", "__source_data__"))
+      tracing = new InputTracing(args.getOrElse("tracing_field", "__source_data__"))
   }
 
   def clear : Unit = {
-    tracking = new NullTracking()
+    tracing = new NullTracing()
   }
 }
 
-abstract class Tracking {
-  // Called after Source.read by TrackedFileSource
+abstract class Tracing {
+  // Called after Source.read by TracingFileSource
   def afterRead(src : Source, pipe : Pipe) : Pipe
 
   // Called by RichPipe.write
@@ -33,45 +33,45 @@ abstract class Tracking {
   // Called by RichPipe.groupBy
   def onGroupBy(groupbuilder : GroupBuilder) : GroupBuilder
 
-  // Called by SourceTrackingJob.buildFlow
+  // Called by SourceTracingJob.buildFlow
   def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit
 
   // The fields which get tracked (so that RichPipe doesnt nuke these fields
   // in  e.g., mapTo and project)
-  def trackingFields : Option[Fields]
+  def tracingFields : Option[Fields]
 }
 
-// This class does no tracking.
-class NullTracking extends Tracking {
+// This class does no tracing.
+class NullTracing extends Tracing {
   override def afterRead(src : Source, pipe : Pipe) : Pipe = pipe
   override def onWrite(pipe : Pipe) : Pipe = pipe
   override def beforeJoin(pipe : Pipe, side : Boolean) : Pipe = pipe
   override def afterJoin(pipe : Pipe) : Pipe = pipe
   override def onGroupBy(groupbuilder : GroupBuilder) : GroupBuilder = groupbuilder
   override def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit = {}
-  override def trackingFields : Option[Fields] = None
+  override def tracingFields : Option[Fields] = None
 }
 
 // This class traces input records throughout the computation by placing
-// the source file tuple contents into a special field, and tracking this through
+// the source file tuple contents into a special field, and tracing this through
 // the computation.
-class InputTracking(val fieldName : String) extends Tracking {
+class InputTracing(val fieldName : String) extends Tracing {
   import Dsl._
 
   val field = new Fields(fieldName)
 
-  override def trackingFields : Option[Fields] = Some(field)
+  override def tracingFields : Option[Fields] = Some(field)
 
-  protected var sources = Set[TrackedFileSource]()
+  protected var sources = Set[TracingFileSource]()
   protected var tailpipes = Map[String, Pipe]()
   
-  def register(src : TrackedFileSource) : Unit = {
+  def register(src : TracingFileSource) : Unit = {
     sources += src
   }
 
   override def afterRead(src : Source, pipe : Pipe) : Pipe = {
     src match {
-      case tf : TrackedFileSource => {
+      case tf : TracingFileSource => {
         register(tf)
         val fp = tf.toString
         pipe.map(tf.hdfsScheme.getSourceFields -> field){ te : TupleEntry => Map(fp -> List[Tuple](te.getTuple)) }
@@ -83,9 +83,9 @@ class InputTracking(val fieldName : String) extends Tracking {
   }
 
   override def onWrite(pipe : Pipe) : Pipe = {
-    // Nuke the implicit tracking object to turn off tracking for this step.
-    Tracking.tracking = new NullTracking()
-    sources.foreach { ts : TrackedFileSource =>
+    // Nuke the implicit tracing object to turn off tracing for this step.
+    Tracing.tracing = new NullTracing()
+    sources.foreach { ts : TracingFileSource =>
       val n = ts.toString
       val p = pipe.flatMapTo(fieldName -> ts.hdfsScheme.getSourceFields){ m : Map[String, List[Tuple]] => m.getOrElse(n, List[Tuple]()) }
       if(tailpipes.contains(n))
@@ -93,8 +93,8 @@ class InputTracking(val fieldName : String) extends Tracking {
       else
         tailpipes += (n -> p)
     }
-    // Resume tracking
-    Tracking.tracking = this
+    // Resume tracing
+    Tracing.tracing = this
     pipe
   }
 
@@ -114,9 +114,9 @@ class InputTracking(val fieldName : String) extends Tracking {
   }
 
   override def onFlowComplete(implicit flowDef : FlowDef, mode : Mode) : Unit = {
-    // Nuke the implicit tracking object to turn off tracking for this step.
-    Tracking.tracking = new NullTracking()
-    sources.foreach { ts : TrackedFileSource => 
+    // Nuke the implicit tracing object to turn off tracing for this step.
+    Tracing.tracing = new NullTracing()
+    sources.foreach { ts : TracingFileSource => 
       val n = ts.toString
       if(tailpipes.contains(n)) {
         ts.subset.writeFrom(tailpipes(n))(flowDef, mode)
