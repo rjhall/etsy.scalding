@@ -119,7 +119,7 @@ class InputTracing(val fieldName : String) extends Tracing {
     sources.foreach { ts : TracingFileSource => 
       val n = ts.toString
       if(tailpipes.contains(n)) {
-        ts.subset.writeFrom(tailpipes(n))(flowDef, mode)
+        ts.subset.writeFrom(RichPipe(tailpipes(n)).unique(ts.hdfsScheme.getSourceFields))(flowDef, mode)
       }
     }
   }

@@ -24,25 +24,39 @@ class TracingFileSource(val original : FileSource, val subset : FileSource, args
   override def hashCode = original.hashCode
 
   override def localScheme : LocalScheme = {
-    original.localScheme
+    if(use_sources) {
+      val v = subset.localScheme
+      v.setSourceFields(original.localScheme.getSourceFields)
+      v
+    } else {
+      original.localScheme
+    }
   }
 
   override def hdfsScheme : Scheme[JobConf,RecordReader[_,_],OutputCollector[_,_],_,_] = {
-    original.hdfsScheme
+    if(use_sources) {
+      val v = subset.hdfsScheme
+      v.setSourceFields(original.hdfsScheme.getSourceFields)
+      v
+    } else {
+      original.hdfsScheme
+    }
   }
 
   override def hdfsPaths : Iterable[String] = {
-    if(use_sources)
+    if(use_sources) {
       subset.hdfsPaths
-    else
+    } else {
       original.hdfsPaths
+    }
   }
 
   override def localPath : String = {
-    if(use_sources)
+    if(use_sources) {
       subset.localPath
-    else
+    } else {
       original.localPath
+    }
   }
 
   override def writeFrom(pipe : Pipe)(implicit flowDef : FlowDef, mode : Mode) = {

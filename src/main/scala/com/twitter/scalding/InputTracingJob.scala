@@ -9,7 +9,7 @@ class InputTracingJob(args : Args) extends Job(args) {
   Tracing.init(args)
 
   // Allow the job to use the optionaSubsample method on a pipe.
-  val use_subsample = args.boolean("use_subsample")
+  val use_subsample = args.boolean("use_sources")
   
   class SubsamplingPipe(pipe : Pipe) extends RichPipe(pipe) {
     def optionalSubsample(p : Double) : Pipe = {
